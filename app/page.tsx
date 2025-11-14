@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, Suspense } from "react"
 import { Plus, TrendingUp, Calendar, X, Share2, Check } from "lucide-react"
 import { useQueryState } from "nuqs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,7 +28,7 @@ interface SwearStats {
   byDate: Record<string, number>
 }
 
-export default function Home() {
+function SwearJarContent() {
   const [swearWord, setSwearWord] = useState("")
   const [entries, setEntries] = useState<SwearEntry[]>([])
   const [copied, setCopied] = useState(false)
@@ -475,5 +475,31 @@ export default function Home() {
         </Card>
       </div>
     </div>
+  )
+}
+
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen bg-background p-4 md:p-8">
+      <div className="mx-auto max-w-6xl space-y-6">
+        <div className="space-y-2">
+          <h1 className="text-4xl font-bold tracking-tight">Swear Jar</h1>
+          <p className="text-muted-foreground">
+            Track your swearing habits and see your progress over time
+          </p>
+        </div>
+        <div className="flex items-center justify-center py-12">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <SwearJarContent />
+    </Suspense>
   )
 }
