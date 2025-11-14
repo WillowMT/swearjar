@@ -168,10 +168,62 @@ export default function Home() {
 
   function copyUrl() {
     const url = window.location.href
-    navigator.clipboard.writeText(url).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
+    
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url)
+        .then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 2000)
+        })
+        .catch(() => {
+          fallbackCopyTextToClipboard(url)
+        })
+    } else {
+      fallbackCopyTextToClipboard(url)
+    }
+  }
+
+  function fallbackCopyTextToClipboard(text: string) {
+    const textArea = document.createElement("textarea")
+    textArea.value = text
+    textArea.style.position = "fixed"
+    textArea.style.left = "-999999px"
+    textArea.style.top = "-999999px"
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    
+    try {
+      const successful = document.execCommand("copy")
+      if (successful) {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } else {
+        promptCopyFallback(text)
+      }
+    } catch (err) {
+      promptCopyFallback(text)
+    } finally {
+      document.body.removeChild(textArea)
+    }
+  }
+
+  function promptCopyFallback(text: string) {
+    const textArea = document.createElement("textarea")
+    textArea.value = text
+    textArea.style.position = "fixed"
+    textArea.style.left = "50%"
+    textArea.style.top = "50%"
+    textArea.style.transform = "translate(-50%, -50%)"
+    textArea.style.zIndex = "9999"
+    textArea.style.padding = "10px"
+    textArea.style.border = "2px solid"
+    textArea.style.borderRadius = "4px"
+    document.body.appendChild(textArea)
+    textArea.select()
+    
+    alert("Please copy the URL manually:\n\n" + text)
+    document.body.removeChild(textArea)
   }
 
   const topWords = Object.entries(stats.byWord)
