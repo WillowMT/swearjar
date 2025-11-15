@@ -1,14 +1,13 @@
 "use client"
 
-import { useState, useEffect, useRef, Suspense } from "react"
-import { Plus, TrendingUp, Calendar, X, Share2, Check } from "lucide-react"
-import { useQueryState } from "nuqs"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { Plus, TrendingUp, Calendar, X, Share2, Check, LogOut, User } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartConfig } from "@/components/ui/chart"
 import { BarChart, Bar, XAxis, CartesianGrid, LineChart, Line } from "recharts"
 
@@ -28,33 +27,13 @@ interface SwearStats {
   byDate: Record<string, number>
 }
 
-function SwearJarContent() {
+export default function Home() {
+  const router = useRouter()
   const [swearWord, setSwearWord] = useState("")
   const [entries, setEntries] = useState<SwearEntry[]>([])
   const [copied, setCopied] = useState(false)
-  const initialized = useRef(false)
-  const [dataParam, setDataParam] = useQueryState("data", {
-    defaultValue: "",
-    parse: (value) => {
-      try {
-        if (!value) return ""
-        const decoded = decodeURIComponent(value)
-        const decompressed = atob(decoded)
-        return decompressed
-      } catch {
-        return ""
-      }
-    },
-    serialize: (value) => {
-      if (!value) return ""
-      try {
-        const compressed = btoa(value)
-        return encodeURIComponent(compressed)
-      } catch {
-        return ""
-      }
-    },
-  })
+  const [loading, setLoading] = useState(true)
+  const [username, setUsername] = useState<string | null>(null)
   const [stats, setStats] = useState<SwearStats>({
     total: 0,
     today: 0,
@@ -64,49 +43,48 @@ function SwearJarContent() {
     byDate: {},
   })
 
-  function updateEntries(newEntries: SwearEntry[]) {
-    setEntries(newEntries)
-    calculateStats(newEntries)
-    
-    const jsonString = JSON.stringify(newEntries)
-    setDataParam(jsonString)
-    
-    localStorage.setItem("swearjar-entries", jsonString)
+  useEffect(() => {
+    checkLoginAndLoadEntries()
+  }, [])
+
+  async function checkLoginAndLoadEntries() {
+    try {
+      const loginResponse = await fetch("/api/login")
+      const loginData = await loginResponse.json()
+
+      if (!loginData.username) {
+        router.push("/login")
+        return
+      }
+
+      setUsername(loginData.username)
+      await loadEntries()
+    } catch (error) {
+      console.error("Error checking login:", error)
+      router.push("/login")
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => {
-    if (initialized.current) return
-    
-    let loadedEntries: SwearEntry[] = []
-    
-    if (dataParam) {
-      try {
-        loadedEntries = JSON.parse(dataParam) as SwearEntry[]
-        initialized.current = true
-      } catch {
-        loadedEntries = []
-      }
-    } else {
-      const stored = localStorage.getItem("swearjar-entries")
-      if (stored) {
-        try {
-          loadedEntries = JSON.parse(stored) as SwearEntry[]
-          const jsonString = JSON.stringify(loadedEntries)
-          setDataParam(jsonString)
-          initialized.current = true
-        } catch {
-          loadedEntries = []
+  async function loadEntries() {
+    try {
+      const response = await fetch("/api/entries")
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push("/login")
+          return
         }
+        throw new Error("Failed to load entries")
       }
+
+      const data = await response.json()
+      setEntries(data.entries || [])
+      calculateStats(data.entries || [])
+    } catch (error) {
+      console.error("Error loading entries:", error)
     }
-    
-    if (loadedEntries.length > 0) {
-      setEntries(loadedEntries)
-      calculateStats(loadedEntries)
-    } else {
-      initialized.current = true
-    }
-  }, [dataParam, setDataParam])
+  }
 
   function calculateStats(entriesList: SwearEntry[]) {
     const now = new Date()
@@ -125,13 +103,13 @@ function SwearJarContent() {
 
     entriesList.forEach((entry) => {
       const entryDate = new Date(entry.timestamp)
-      
+
       if (entryDate >= today) newStats.today++
       if (entryDate >= weekAgo) newStats.thisWeek++
       if (entryDate >= monthAgo) newStats.thisMonth++
 
       newStats.byWord[entry.word] = (newStats.byWord[entry.word] || 0) + 1
-      
+
       const dateKey = entry.date
       newStats.byDate[dateKey] = (newStats.byDate[dateKey] || 0) + 1
     })
@@ -139,36 +117,86 @@ function SwearJarContent() {
     setStats(newStats)
   }
 
-  function addSwear() {
+  async function addSwear() {
     if (!swearWord.trim()) return
 
-    const newEntry: SwearEntry = {
-      id: Date.now().toString(),
-      word: swearWord.trim().toLowerCase(),
-      timestamp: Date.now(),
-      date: new Date().toISOString().split("T")[0],
+    try {
+      const response = await fetch("/api/entries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ word: swearWord.trim() }),
+      })
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push("/login")
+          return
+        }
+        throw new Error("Failed to add entry")
+      }
+
+      const data = await response.json()
+      setEntries(data.entries)
+      calculateStats(data.entries)
+      setSwearWord("")
+    } catch (error) {
+      console.error("Error adding entry:", error)
+      alert("Failed to add entry. Please try again.")
     }
-
-    const updated = [newEntry, ...entries]
-    updateEntries(updated)
-    setSwearWord("")
   }
 
-  function deleteEntry(id: string) {
-    const updated = entries.filter((e) => e.id !== id)
-    updateEntries(updated)
+  async function deleteEntry(id: string) {
+    try {
+      const response = await fetch(`/api/entries/${id}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push("/login")
+          return
+        }
+        throw new Error("Failed to delete entry")
+      }
+
+      const data = await response.json()
+      setEntries(data.entries)
+      calculateStats(data.entries)
+    } catch (error) {
+      console.error("Error deleting entry:", error)
+      alert("Failed to delete entry. Please try again.")
+    }
   }
 
-  function clearAll() {
-    if (confirm("Are you sure you want to clear all entries?")) {
-      updateEntries([])
-      localStorage.removeItem("swearjar-entries")
+  async function clearAll() {
+    if (!confirm("Are you sure you want to clear all entries?")) return
+
+    try {
+      const response = await fetch("/api/entries", {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push("/login")
+          return
+        }
+        throw new Error("Failed to clear entries")
+      }
+
+      setEntries([])
+      calculateStats([])
+    } catch (error) {
+      console.error("Error clearing entries:", error)
+      alert("Failed to clear entries. Please try again.")
     }
   }
 
   function copyUrl() {
     const url = window.location.href
-    
+
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(url)
         .then(() => {
@@ -192,7 +220,7 @@ function SwearJarContent() {
     document.body.appendChild(textArea)
     textArea.focus()
     textArea.select()
-    
+
     try {
       const successful = document.execCommand("copy")
       if (successful) {
@@ -221,9 +249,39 @@ function SwearJarContent() {
     textArea.style.borderRadius = "4px"
     document.body.appendChild(textArea)
     textArea.select()
-    
+
     alert("Please copy the URL manually:\n\n" + text)
     document.body.removeChild(textArea)
+  }
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/logout", {
+        method: "POST",
+      });
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+      router.push("/login");
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background p-4 md:p-8">
+        <div className="mx-auto max-w-6xl space-y-6">
+          <div className="space-y-2">
+            <h1 className="text-4xl font-bold tracking-tight">Swear Jar</h1>
+            <p className="text-muted-foreground">
+              Track your swearing habits and see your progress over time
+            </p>
+          </div>
+          <div className="flex items-center justify-center py-12">
+            <p className="text-muted-foreground">Loading...</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const topWords = Object.entries(stats.byWord)
@@ -258,26 +316,40 @@ function SwearJarContent() {
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex items-start justify-between">
           <div className="space-y-2">
-            <h1 className="text-4xl font-bold tracking-tight">Swear Jar</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-4xl font-bold tracking-tight">Swear Jar</h1>
+              {username && (
+                <Badge variant="outline" className="flex items-center gap-1">
+                  <User className="h-3 w-3" />
+                  {username}
+                </Badge>
+              )}
+            </div>
             <p className="text-muted-foreground">
               Track your swearing habits and see your progress over time
             </p>
           </div>
-          {entries.length > 0 && (
-            <Button variant="outline" onClick={copyUrl}>
-              {copied ? (
-                <>
-                  <Check className="mr-2 h-4 w-4" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Share2 className="mr-2 h-4 w-4" />
-                  Share URL
-                </>
-              )}
+          <div className="flex gap-2">
+            {entries.length > 0 && (
+              <Button variant="outline" onClick={copyUrl}>
+                {copied ? (
+                  <>
+                    <Check className="mr-2 h-4 w-4" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="mr-2 h-4 w-4" />
+                    Share URL
+                  </>
+                )}
+              </Button>
+            )}
+            <Button variant="outline" onClick={handleLogout}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Logout
             </Button>
-          )}
+          </div>
         </div>
 
         <Card>
@@ -475,31 +547,5 @@ function SwearJarContent() {
         </Card>
       </div>
     </div>
-  )
-}
-
-function LoadingFallback() {
-  return (
-    <div className="min-h-screen bg-background p-4 md:p-8">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="space-y-2">
-          <h1 className="text-4xl font-bold tracking-tight">Swear Jar</h1>
-          <p className="text-muted-foreground">
-            Track your swearing habits and see your progress over time
-          </p>
-        </div>
-        <div className="flex items-center justify-center py-12">
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export default function Home() {
-  return (
-    <Suspense fallback={<LoadingFallback />}>
-      <SwearJarContent />
-    </Suspense>
   )
 }
