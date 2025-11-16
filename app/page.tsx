@@ -314,7 +314,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <h1 className="text-4xl font-bold tracking-tight">Swear Jar</h1>
@@ -329,7 +329,7 @@ export default function Home() {
               Track your swearing habits and see your progress over time
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
             {entries.length > 0 && (
               <Button variant="outline" onClick={copyUrl}>
                 {copied ? (
